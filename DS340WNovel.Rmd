@@ -1,0 +1,135 @@
+---
+title: "MDP Simulation: 4th Quarter Analysis"
+author: "Nicholas Malloy"
+date: "3/28/25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Load Data (Filtered to 4th Quarter)
+```{r}
+library(tidyverse)
+dat = read.csv("C:/Users/nmall/Desktop/DS340W/data/2013_11_01_MIA_BRK_formatted.csv")
+
+# Filter for 4th quarter only
+dat_q4 = dat %>% filter(quarter == 4)
+head(dat_q4)
+```
+# Load utility functions
+```{r}
+```
+# Load posterior draws for 4th quarter MDP
+```{r}
+# Set base directory to the location of your project
+base_dir <- "C:/Users/nmall/Desktop/DS340W"  # Adjust this if needed
+
+# Load utility functions
+source(file.path(base_dir, "code", "simulation_utils.R"))
+n_draws = 300
+lambda_MIA_draws = readRDS(file.path(base_dir, "model_output", "lambda_MIA_draws.rds"))
+lambda_BRK_draws = readRDS(file.path(base_dir, "model_output", "lambda_BRK_draws.rds"))
+mu_draws = readRDS(file.path(base_dir, "model_output", "mu_draws.rds"))
+theta_draws = readRDS(file.path(base_dir, "model_output", "theta_draws.rds"))
+xi_draws = readRDS(file.path(base_dir, "model_output", "xi_draws.rds"))
+```
+# Get 4th quarter initial states and shot clock times
+```{r}
+MIA_initial_states_q4 <- get_initial_states(dat_q4, "MIA")
+BRK_initial_states_q4 <- get_initial_states(dat_q4, "BRK")
+```
+# Get 4th quarter empirical shot clock distribution
+```{r}
+shot_clock_dist_q4 <- get_sc_dist(dat = dat_q4, num_intervals = 3)
+```
+# Simulate 4th Quarter Plays (100 simulations)
+```{r}
+n_sim = 100
+
+# Miami Simulations
+MIA_points_q4 = NA
+for(iter in 1:n_sim){
+  for(play in 1:nrow(MIA_initial_states_q4)) {
+    if (play == 1) {
+      game_moments_MIA = algorithm_1(
+        s_0 = MIA_initial_states_q4[play, "state"],
+        c_0 = MIA_initial_states_q4[play, "shot_clock"],
+        theta_draws = theta_draws,
+        mu_draws = mu_draws,
+        xi_draws = xi_draws,
+        lambda_draws = lambda_MIA_draws,
+        L_dist = shot_clock_dist_q4,
+        num_mcmc = n_draws
+      )
+    } else {
+      game_moments_MIA = rbind(
+        game_moments_MIA,
+        algorithm_1(
+          s_0 = MIA_initial_states_q4[play, "state"],
+          c_0 = MIA_initial_states_q4[play, "shot_clock"],
+          theta_draws = theta_draws,
+          mu_draws = mu_draws,
+          xi_draws = xi_draws,
+          lambda_draws = lambda_MIA_draws,
+          L_dist = shot_clock_dist_q4,
+          num_mcmc = n_draws
+        )
+      )
+    }
+  }
+  MIA_points_q4[iter] = sum(game_moments_MIA$reward)
+}
+
+# Brooklyn Simulations
+BRK_points_q4 = NA
+for(iter in 1:n_sim){
+  for(play in 1:nrow(BRK_initial_states_q4)) {
+    if (play == 1) {
+      game_moments_BRK = algorithm_1(
+        s_0 = BRK_initial_states_q4[play, "state"],
+        c_0 = BRK_initial_states_q4[play, "shot_clock"],
+        theta_draws = theta_draws,
+        mu_draws = mu_draws,
+        xi_draws = xi_draws,
+        lambda_draws = lambda_BRK_draws,
+        L_dist = shot_clock_dist_q4,
+        num_mcmc = n_draws
+      )
+    } else {
+      game_moments_BRK = rbind(
+        game_moments_BRK,
+        algorithm_1(
+          s_0 = BRK_initial_states_q4[play, "state"],
+          c_0 = BRK_initial_states_q4[play, "shot_clock"],
+          theta_draws = theta_draws,
+          mu_draws = mu_draws,
+          xi_draws = xi_draws,
+          lambda_draws = lambda_BRK_draws,
+          L_dist = shot_clock_dist_q4,
+          num_mcmc = n_draws
+        )
+      )
+    }
+  }
+  BRK_points_q4[iter] = sum(game_moments_BRK$reward)
+}
+
+# Plot Density of Simulated 4th Quarter Scores
+```
+
+```{r}
+plot(density(MIA_points_q4), col = "red", 
+     main = "4th Quarter Simulations: MIA vs BRK",
+     xlab = "Points")
+dat_q4 %>% filter(team == "MIA") %>% with(abline(v = sum(points), 
+                                              col = "red",
+                                              lty = 2))
+
+lines(density(BRK_points_q4))
+dat_q4 %>% filter(team == "BRK") %>% with(abline(v = sum(points),
+                                              lty = 2))
+legend("topleft", c("Brooklyn", "Miami"),
+       col = c("black", "red"),
+       lwd = 2, bg = NA)
+```

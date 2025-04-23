@@ -1,0 +1,136 @@
+---
+title: 'MDP Simulation: 4th Quarter Analysis'
+author: "Nicholas Malloy"
+date: "4/22/25"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r, echo=TRUE}
+# Setup
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load libraries and data
+library(tidyverse)
+dat = read.csv("C:/Users/nmall/Desktop/DS340W/data/2013_11_01_MIA_BRK_formatted.csv")
+dat_q4 = dat %>% filter(quarter == 4)
+
+# Load utility functions and posterior draws
+base_dir <- "C:/Users/nmall/Desktop/DS340W"
+source(file.path(base_dir, "code", "simulation_utils.R"))
+n_draws = 300
+lambda_MIA_draws = readRDS(file.path(base_dir, "model_output", "lambda_MIA_draws.rds"))
+lambda_BRK_draws = readRDS(file.path(base_dir, "model_output", "lambda_BRK_draws.rds"))
+mu_draws = readRDS(file.path(base_dir, "model_output", "mu_draws.rds"))
+theta_draws = readRDS(file.path(base_dir, "model_output", "theta_draws.rds"))
+xi_draws = readRDS(file.path(base_dir, "model_output", "xi_draws.rds"))
+
+# Get 4th quarter states and shot clock distribution
+MIA_initial_states_q4 <- get_initial_states(dat_q4, "MIA")
+BRK_initial_states_q4 <- get_initial_states(dat_q4, "BRK")
+shot_clock_dist_q4 <- get_sc_dist(dat = dat_q4, num_intervals = 3)
+
+# Optimized strategy (shoot earlier)
+algorithm_optimized <- function(s_0, c_0, theta_draws, mu_draws, xi_draws, lambda_draws, L_dist, num_mcmc) {
+  result <- algorithm_1(
+    s_0 = s_0,
+    c_0 = max(c_0 - 5, 1),  # shoot 5 seconds earlier if possible
+    theta_draws = theta_draws,
+    mu_draws = mu_draws,
+    xi_draws = xi_draws,
+    lambda_draws = lambda_draws,
+    L_dist = L_dist,
+    num_mcmc = num_mcmc
+  )
+  return(result)
+}
+
+# Simulate games
+n_sim = 100
+
+# Miami default strategy
+MIA_points_q4 = numeric(n_sim)
+for(iter in 1:n_sim){
+  for(play in 1:nrow(MIA_initial_states_q4)) {
+    this_play <- algorithm_1(
+      s_0 = MIA_initial_states_q4[play, "state"],
+      c_0 = MIA_initial_states_q4[play, "shot_clock"],
+      theta_draws = theta_draws,
+      mu_draws = mu_draws,
+      xi_draws = xi_draws,
+      lambda_draws = lambda_MIA_draws,
+      L_dist = shot_clock_dist_q4,
+      num_mcmc = n_draws
+    )
+    game_moments_MIA <- if (play == 1) this_play else rbind(game_moments_MIA, this_play)
+  }
+  MIA_points_q4[iter] = sum(game_moments_MIA$reward)
+}
+
+# Brooklyn
+BRK_points_q4 = numeric(n_sim)
+for(iter in 1:n_sim){
+  for(play in 1:nrow(BRK_initial_states_q4)) {
+    this_play <- algorithm_1(
+      s_0 = BRK_initial_states_q4[play, "state"],
+      c_0 = BRK_initial_states_q4[play, "shot_clock"],
+      theta_draws = theta_draws,
+      mu_draws = mu_draws,
+      xi_draws = xi_draws,
+      lambda_draws = lambda_BRK_draws,
+      L_dist = shot_clock_dist_q4,
+      num_mcmc = n_draws
+    )
+    game_moments_BRK <- if (play == 1) this_play else rbind(game_moments_BRK, this_play)
+  }
+  BRK_points_q4[iter] = sum(game_moments_BRK$reward)
+}
+
+# Miami optimized strategy
+MIA_points_q4_opt = numeric(n_sim)
+for(iter in 1:n_sim){
+  for(play in 1:nrow(MIA_initial_states_q4)) {
+    this_play <- algorithm_optimized(
+      s_0 = MIA_initial_states_q4[play, "state"],
+      c_0 = MIA_initial_states_q4[play, "shot_clock"],
+      theta_draws = theta_draws,
+      mu_draws = mu_draws,
+      xi_draws = xi_draws,
+      lambda_draws = lambda_MIA_draws,
+      L_dist = shot_clock_dist_q4,
+      num_mcmc = n_draws
+    )
+    game_moments_MIA_opt <- if (play == 1) this_play else rbind(game_moments_MIA_opt, this_play)
+  }
+  MIA_points_q4_opt[iter] = sum(game_moments_MIA_opt$reward)
+}
+
+# Calculate density objects first to extract y-axis limits
+dens_MIA <- density(MIA_points_q4)
+dens_MIA_opt <- density(MIA_points_q4_opt)
+dens_BRK <- density(BRK_points_q4)
+
+# Find the maximum y-value for all three densities
+max_y <- max(dens_MIA$y, dens_MIA_opt$y, dens_BRK$y)
+
+# Plot with proper ylim
+plot(dens_MIA, col = "red", 
+     main = "4th Quarter Simulations: MIA vs BRK",
+     xlab = "Points", lwd = 2,
+     ylim = c(0, max_y * 1.1))  # Add a little buffer
+
+lines(dens_MIA_opt, col = "darkgreen", lwd = 2, lty = 2)
+lines(dens_BRK, col = "black", lwd = 2)
+
+# Add empirical results
+dat_q4 %>% filter(team == "MIA") %>% with(abline(v = sum(points), col = "red", lty = 2))
+dat_q4 %>% filter(team == "BRK") %>% with(abline(v = sum(points), lty = 2))
+
+legend("topleft", 
+       legend = c("Brooklyn", "Miami (original)", "Miami (optimized)"),
+       col = c("black", "red", "darkgreen"),
+       lwd = 2, lty = c(1, 1, 2), bg = NA)
+
+```
